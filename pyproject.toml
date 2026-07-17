@@ -7,7 +7,9 @@ authors = [
     { name = "Ziyi Fang" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "pydantic>=2.13.4",
+]
 
 [project.scripts]
 internship-tracker = "internship_tracker.cli:main"
