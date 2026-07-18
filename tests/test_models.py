@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from uuid import UUID
 
 import pytest
@@ -206,3 +206,53 @@ def test_rejects_unknown_fields() -> None:
                 "create_at": "2026-07-18T12:00:00Z",
             }
         )
+
+
+def test_rejects_blank_country() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        Internship(
+            company="Amazon",
+            title="Agent Development",
+            country="  \t ",
+            url=CAREERS_URL,
+            created_at=datetime(2026, 7, 18, 12, 0, tzinfo=UTC),
+        )
+
+    assert any(error["loc"] == ("country",) for error in exc_info.value.errors())
+
+
+def test_strips_country_whitespace() -> None:
+    internship = Internship(
+        company="Amazon",
+        title="Agent Development",
+        country="  France  ",
+        url=CAREERS_URL,
+        created_at=datetime(2026, 7, 18, 12, 0, tzinfo=UTC),
+    )
+
+    assert internship.country == "France"
+
+
+def test_converts_non_utc_aware_created_at_to_utc() -> None:
+    source_time = datetime(
+        2026,
+        7,
+        18,
+        10,
+        30,
+        tzinfo=timezone(timedelta(hours=2)),
+    )
+
+    internship = Internship(
+        company="Amazon",
+        title="Agent Development",
+        country="France",
+        url=CAREERS_URL,
+        created_at=source_time,
+    )
+
+    expected_utc = datetime(2026, 7, 18, 8, 30, tzinfo=UTC)
+
+    assert internship.created_at == expected_utc
+    assert internship.created_at.utcoffset() == timedelta(0)
+    assert internship.created_at.timestamp() == source_time.timestamp()

@@ -33,7 +33,7 @@ class Internship(BaseModel):
     city: str | None = None
     company: NonBlankString
     title: NonBlankString
-    country: str
+    country: NonBlankString
     url: HttpUrl
     tags: list[str] = Field(default_factory=list)
     notes: str | None = None
