@@ -1,5 +1,5 @@
+import logging
 from datetime import UTC, datetime
-from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -9,35 +9,12 @@ from internship_tracker.exceptions import (
     DuplicateInternshipError,
     InternshipNotFoundError,
 )
-from internship_tracker.models import ApplicationStatus, Internship
+from internship_tracker.models import ApplicationStatus
 from internship_tracker.repository import InternshipRepository
 from internship_tracker.service import InternshipService, InternshipSortOrder
+from tests.factories import make_internship
 
 DEFAULT_CREATED_AT = datetime(2026, 7, 18, 8, 0, tzinfo=UTC)
-
-
-def make_internship(
-    *,
-    company: str,
-    title: str,
-    country: str,
-    url: str,
-    status: ApplicationStatus = ApplicationStatus.SAVED,
-    created_at: datetime = DEFAULT_CREATED_AT,
-) -> Internship:
-    return Internship(
-        company=company,
-        title=title,
-        country=country,
-        url=url,  # type: ignore
-        status=status,
-        created_at=created_at,
-    )
-
-
-@pytest.fixture
-def repository(tmp_path: Path) -> InternshipRepository:
-    return InternshipRepository(tmp_path / "internships.json")
 
 
 @pytest.fixture
@@ -330,3 +307,67 @@ def test_search_internships_treats_blank_keyword_as_no_filter(
     result = service.search_internships(keyword="   ")
 
     assert [item.id for item in result] == [first.id, second.id]
+
+
+def test_add_internship_logs_success_without_sensitive_data(
+    service: InternshipService,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    sensitive_url = "https://example.com/job?token=do-not-log"
+    sensitive_notes = "private interview notes"
+
+    with caplog.at_level(logging.DEBUG, logger="internship_tracker"):
+        added = service.add_internship(
+            company="Example AI",
+            title="Agent Engineer",
+            country="France",
+            url=sensitive_url,
+            notes=sensitive_notes,
+        )
+
+    records = caplog.records
+    service_info_records = [
+        r for r in records if r.name == "internship_tracker.service" and r.levelno == logging.INFO
+    ]
+    assert len(service_info_records) >= 1
+    service_log_msg = service_info_records[0].getMessage()
+
+    assert "Added internship" in service_log_msg
+    assert str(added.id) in service_log_msg
+
+    repo_debug_records = [
+        r
+        for r in records
+        if r.name == "internship_tracker.repository" and r.levelno == logging.DEBUG
+    ]
+    assert len(repo_debug_records) >= 1
+
+    log_text = caplog.text
+    assert sensitive_url not in log_text
+    assert sensitive_notes not in log_text
+
+
+def test_update_status_logs_success(
+    service: InternshipService,
+    repository: InternshipRepository,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    internship = make_internship()
+    repository.add(internship)
+
+    with caplog.at_level(logging.INFO, logger="internship_tracker.service"):
+        updated = service.update_status(
+            internship.id,
+            ApplicationStatus.APPLIED,
+        )
+
+    service_records = [
+        r
+        for r in caplog.records
+        if r.name == "internship_tracker.service" and r.levelno == logging.INFO
+    ]
+    assert service_records
+    log_msg = service_records[0].getMessage()
+
+    assert str(updated.id) in log_msg
+    assert "applied" in log_msg.lower()

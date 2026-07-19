@@ -1,4 +1,5 @@
 import json
+import logging
 from collections.abc import Sequence
 from contextlib import suppress
 from json import JSONDecodeError
@@ -14,6 +15,8 @@ from internship_tracker.exceptions import (
 )
 from internship_tracker.models import Internship
 
+logger = logging.getLogger(__name__)
+
 
 class InternshipRepository:
     def __init__(self, path: Path) -> None:
@@ -21,6 +24,7 @@ class InternshipRepository:
 
     def load_all(self) -> list[Internship]:
         if not self._path.exists():
+            logger.debug("Loaded %d internships", 0)
             return []
 
         try:
@@ -42,10 +46,12 @@ class InternshipRepository:
             raise StorageError(f"Invalid internship data in {self._path}") from exc
 
         self._ensure_unique_ids(internships)
+        logger.debug("Loaded %d internships", len(internships))
         return internships
 
     def save_all(self, internships: Sequence[Internship]) -> None:
         items = list(internships)
+        logger.debug("Saving %d internships", len(items))
         self._ensure_unique_ids(items)
 
         payload: list[dict[str, object]] = []

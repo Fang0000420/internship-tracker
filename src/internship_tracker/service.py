@@ -1,9 +1,12 @@
+import logging
 from enum import StrEnum
 from uuid import UUID
 
 from internship_tracker.exceptions import DuplicateInternshipError
 from internship_tracker.models import ApplicationStatus, Internship
 from internship_tracker.repository import InternshipRepository
+
+logger = logging.getLogger(__name__)
 
 
 class InternshipSortOrder(StrEnum):
@@ -71,7 +74,9 @@ class InternshipService:
 
         if duplicate_exists:
             raise DuplicateInternshipError(f"Internship with URL {candidate.url} already exists")
-        return self.repository.add(candidate)
+        saved = self.repository.add(candidate)
+        logger.info("Added internship %s", saved.id)
+        return saved
 
     def list_internships(
         self,
@@ -90,7 +95,13 @@ class InternshipService:
     ) -> list[Internship]:
         normalized_keyword = keyword.strip().casefold() if keyword is not None else ""
         normalized_country = country.strip().casefold() if country is not None else ""
-
+        logger.debug(
+            "Searching internships keyword_set=%s country_set=%s status=%s sort_order=%s",
+            bool(normalized_keyword),
+            bool(normalized_country),
+            status.value if status is not None else None,
+            sort_order.value,
+        )
         matches: list[Internship] = []
 
         for internship in self.repository.load_all():
@@ -109,7 +120,9 @@ class InternshipService:
 
             matches.append(internship)
 
-        return _sort_internships(matches, sort_order)
+        result = _sort_internships(matches, sort_order)
+        logger.debug("Search returned %d internships", len(result))
+        return result
 
     def update_status(
         self,
@@ -119,5 +132,10 @@ class InternshipService:
         current = self.repository.get_by_id(internship_id)
 
         updated = current.model_copy(update={"status": new_status})
-
-        return self.repository.update(updated)
+        saved = self.repository.update(updated)
+        logger.info(
+            "Updated internship %s status to %s",
+            saved.id,
+            saved.status.value,
+        )
+        return saved

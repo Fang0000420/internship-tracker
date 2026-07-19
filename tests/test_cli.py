@@ -1,122 +1,92 @@
+import logging
+from json import JSONDecodeError
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from typer.testing import CliRunner
+from typer.testing import CliRunner, Result
 
 from internship_tracker.cli import app
+from internship_tracker.exceptions import StorageError
 from internship_tracker.models import ApplicationStatus, Internship
 from internship_tracker.repository import InternshipRepository
+from tests.factories import make_internship
 
 runner = CliRunner()
 
 
-@pytest.fixture
-def data_file(tmp_path: Path) -> Path:
-    return tmp_path / "internships.json"
-
-
-def make_internship(
-    *,
-    company: str,
-    title: str,
-    country: str,
-    url: str,
-    status: ApplicationStatus = ApplicationStatus.SAVED,
-) -> Internship:
-    return Internship.model_validate(
-        {
-            "company": company,
-            "title": title,
-            "country": country,
-            "url": url,
-            "status": status,
-        }
+def invoke_cli(data_file: Path, *arguments: str) -> Result:
+    return runner.invoke(
+        app,
+        ["--data-file", str(data_file), *arguments],
     )
 
 
 def test_add_command_persists_internship(data_file: Path) -> None:
-    result = runner.invoke(
-        app,
-        [
-            "--data-file",
-            str(data_file),
-            "add",
-            "--company",
-            "Mistral AI",
-            "--title",
-            "Agent Engineer",
-            "--country",
-            "France",
-            "--url",
-            "https://example.com/agent-engineer",
-        ],
+    result = invoke_cli(
+        data_file,
+        "add",
+        "--company",
+        "Mistral AI",
+        "--title",
+        "Agent Engineer",
+        "--country",
+        "France",
+        "--url",
+        "https://example.com/agent-engineer",
     )
 
     assert result.exit_code == 0
-
+    result = invoke_cli(data_file)
     saved = InternshipRepository(data_file).load_all()
     assert len(saved) == 1
     assert saved[0].company == "Mistral AI"
 
 
 def test_add_command_translates_validation_error(data_file: Path) -> None:
-    result = runner.invoke(
-        app,
-        [
-            "--data-file",
-            str(data_file),
-            "add",
-            "--company",
-            "Mistral AI",
-            "--title",
-            "Agent Engineer",
-            "--country",
-            "   ",
-            "--url",
-            "https://example.com/agent-engineer",
-        ],
+    result = invoke_cli(
+        data_file,
+        "add",
+        "--company",
+        "Mistral AI",
+        "--title",
+        "Agent Engineer",
+        "--country",
+        "   ",
+        "--url",
+        "https://example.com/agent-engineer",
     )
-
     assert result.exit_code == 2
     assert "invalid internship data" in result.output.casefold()
     assert InternshipRepository(data_file).load_all() == []
 
 
 def test_add_command_rejects_duplicate_url(data_file: Path) -> None:
-    first_result = runner.invoke(
-        app,
-        [
-            "--data-file",
-            str(data_file),
-            "add",
-            "--company",
-            "Mistral AI",
-            "--title",
-            "Agent Engineer",
-            "--country",
-            "France",
-            "--url",
-            "https://example.com/duplicate",
-        ],
+    first_result = invoke_cli(
+        data_file,
+        "add",
+        "--company",
+        "Mistral AI",
+        "--title",
+        "Agent Engineer",
+        "--country",
+        "France",
+        "--url",
+        "https://example.com/duplicate",
     )
     assert first_result.exit_code == 0
 
-    duplicate_result = runner.invoke(
-        app,
-        [
-            "--data-file",
-            str(data_file),
-            "add",
-            "--company",
-            "Another Company",
-            "--title",
-            "Another Position",
-            "--country",
-            "Germany",
-            "--url",
-            "https://example.com/duplicate",
-        ],
+    duplicate_result = invoke_cli(
+        data_file,
+        "add",
+        "--company",
+        "Mistral AI",
+        "--title",
+        "Agent Engineer",
+        "--country",
+        "France",
+        "--url",
+        "https://example.com/duplicate",
     )
 
     assert duplicate_result.exit_code == 1
@@ -134,10 +104,7 @@ def test_list_command_displays_saved_internship(data_file: Path) -> None:
     )
     repository.add(internship)
 
-    result = runner.invoke(
-        app,
-        ["--data-file", str(data_file), "list"],
-    )
+    result = invoke_cli(data_file, "list")
 
     assert result.exit_code == 0
     assert str(internship.id) in result.output
@@ -163,15 +130,11 @@ def test_search_command_displays_matching_results(data_file: Path) -> None:
     repository.add(matching)
     repository.add(unrelated)
 
-    result = runner.invoke(
-        app,
-        [
-            "--data-file",
-            str(data_file),
-            "search",
-            "--keyword",
-            "AGENT",
-        ],
+    result = invoke_cli(
+        data_file,
+        "search",
+        "--keyword",
+        "AGENT",
     )
 
     assert result.exit_code == 0
@@ -180,16 +143,7 @@ def test_search_command_displays_matching_results(data_file: Path) -> None:
 
 
 def test_search_command_reports_no_results(data_file: Path) -> None:
-    result = runner.invoke(
-        app,
-        [
-            "--data-file",
-            str(data_file),
-            "search",
-            "--keyword",
-            "nonexistent",
-        ],
-    )
+    result = invoke_cli(data_file, "search", "--keyword", "nonexistent")
 
     assert result.exit_code == 0
     assert "no internships found" in result.output.casefold()
@@ -206,16 +160,8 @@ def test_update_status_command_persists_change(data_file: Path) -> None:
         }
     )
     repository.add(internship)
-
-    result = runner.invoke(
-        app,
-        [
-            "--data-file",
-            str(data_file),
-            "update-status",
-            str(internship.id),
-            ApplicationStatus.APPLIED.value,
-        ],
+    result = invoke_cli(
+        data_file, "update-status", str(internship.id), ApplicationStatus.APPLIED.value
     )
 
     persisted = InternshipRepository(data_file).get_by_id(internship.id)
@@ -251,16 +197,8 @@ def test_update_status_command_reports_unknown_id(
     data_file: Path,
 ) -> None:
     unknown_id = uuid4()
-
-    result = runner.invoke(
-        app,
-        [
-            "--data-file",
-            str(data_file),
-            "update-status",
-            str(unknown_id),
-            ApplicationStatus.APPLIED.value,
-        ],
+    result = invoke_cli(
+        data_file, "update-status", str(unknown_id), ApplicationStatus.APPLIED.value
     )
 
     assert result.exit_code == 1
@@ -268,14 +206,90 @@ def test_update_status_command_reports_unknown_id(
     assert "traceback" not in result.output.casefold()
 
 
-def test_corrupted_storage_returns_stable_error(data_file: Path) -> None:
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["list"],
+        ["search"],
+    ],
+)
+def test_corrupted_storage_returns_stable_error(
+    data_file: Path,
+    arguments: list[str],
+) -> None:
     data_file.write_text("{invalid json", encoding="utf-8")
 
-    result = runner.invoke(
-        app,
-        ["--data-file", str(data_file), "list"],
-    )
+    result = invoke_cli(data_file, *arguments)
 
     assert result.exit_code == 1
     assert "unable to access internship data" in result.output.casefold()
     assert "traceback" not in result.output.casefold()
+
+
+def test_default_mode_suppresses_debug_logs(
+    data_file: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    result = invoke_cli(data_file, "list")
+
+    assert result.exit_code == 0
+    assert not any(
+        record.levelno == logging.DEBUG and record.name.startswith("internship_tracker")
+        for record in caplog.records
+    )
+
+
+def test_verbose_mode_emits_debug_diagnostics(
+    data_file: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    result = invoke_cli(data_file, "--verbose", "list")
+
+    assert result.exit_code == 0
+
+    repo_debug_records = [
+        rec
+        for rec in caplog.records
+        if rec.name == "internship_tracker.repository" and rec.levelno == logging.DEBUG
+    ]
+    assert repo_debug_records
+    debug_record = repo_debug_records[0]
+
+    log_msg = debug_record.getMessage()
+    assert any(char.isdigit() for char in log_msg)
+    assert "loaded" in log_msg.lower() or "load" in log_msg.lower()
+
+    assert log_msg not in result.stdout
+
+
+def test_verbose_storage_error_logs_exception_chain(
+    data_file: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    data_file.write_text("{invalid json", encoding="utf-8")
+
+    result = invoke_cli(data_file, "--verbose", "list")
+
+    assert result.exit_code == 1
+    assert "unable to access internship data" in result.output.casefold()
+
+    error_records = [
+        record
+        for record in caplog.records
+        if record.name == "internship_tracker.cli" and record.levelno == logging.ERROR
+    ]
+
+    assert len(error_records) == 1
+    err_rec = error_records[0]
+
+    assert "Storage operation failed" in err_rec.getMessage()
+
+    assert err_rec.exc_info is not None
+
+    exc_type, exc_val, _ = err_rec.exc_info
+    assert exc_type == StorageError
+    assert isinstance(exc_val, StorageError)
+
+    assert isinstance(exc_val.__cause__, JSONDecodeError)
+    assert err_rec.getMessage() not in result.stdout
+    assert "JSONDecodeError" not in result.stdout

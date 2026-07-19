@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from typing import Annotated, Never
 from uuid import UUID
@@ -15,6 +16,7 @@ from internship_tracker.repository import InternshipRepository
 from internship_tracker.service import InternshipService, InternshipSortOrder
 
 DEFAULT_DATA_FILE = Path("internships.json")
+logger = logging.getLogger(__name__)
 
 app = typer.Typer(
     help="Manage internship applications.",
@@ -23,6 +25,16 @@ app = typer.Typer(
     rich_markup_mode=None,
     pretty_exceptions_enable=False,
 )
+
+
+def _configure_logging(verbose: bool) -> None:
+    level = logging.DEBUG if verbose else logging.WARNING
+
+    logging.basicConfig(
+        level=level,
+        format="%(levelname)s %(name)s: %(message)s",
+    )
+    logging.getLogger("internship_tracker").setLevel(level)
 
 
 def _get_service(ctx: typer.Context) -> InternshipService:
@@ -68,6 +80,9 @@ def _abort_with_error(
         raise typer.Exit(code=1) from error
 
     if isinstance(error, StorageError):
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.exception("Storage operation failed")
+
         typer.echo(
             "Error: unable to access internship data.",
             err=True,
@@ -97,7 +112,12 @@ def configure(
         Path,
         typer.Option("--data-file", help="Path to the JSON data file."),
     ] = DEFAULT_DATA_FILE,
+    verbose: Annotated[
+        bool,
+        typer.Option("--verbose", help="Enable debug diagnostic logging."),
+    ] = False,
 ) -> None:
+    _configure_logging(verbose)
     ctx.obj = build_service(data_file)
 
 

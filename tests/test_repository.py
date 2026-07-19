@@ -1,5 +1,4 @@
 import json
-from datetime import UTC, datetime
 from json import JSONDecodeError
 from pathlib import Path
 from uuid import uuid4
@@ -12,41 +11,29 @@ from internship_tracker.exceptions import (
     InternshipNotFoundError,
     StorageError,
 )
-from internship_tracker.models import ApplicationStatus, Internship
+from internship_tracker.models import ApplicationStatus
 from internship_tracker.repository import InternshipRepository
-
-
-def make_internship(**overrides: object) -> Internship:
-    data: dict[str, object] = {
-        "company": "Mistral AI",
-        "title": "AI Engineer Intern",
-        "country": "France",
-        "city": "Paris",
-        "url": "https://example.com/jobs/agent-engineer",
-        "created_at": datetime(2026, 7, 18, 10, 0, tzinfo=UTC),
-    }
-
-    data.update(overrides)
-    return Internship.model_validate(data)
+from tests.factories import make_internship
 
 
 def test_load_all_returns_empty_list_when_file_does_not_exist(
-    tmp_path: Path,
+    repository: InternshipRepository,
 ) -> None:
-    repository = InternshipRepository(tmp_path / "internships.json")
     assert repository.load_all() == []
 
 
-def test_save_and_load_one_internship(tmp_path: Path) -> None:
-    repository = InternshipRepository(tmp_path / "internships.json")
+def test_save_and_load_one_internship(
+    repository: InternshipRepository,
+) -> None:
     internship = make_internship()
 
     repository.save_all([internship])
     assert repository.load_all() == [internship]
 
 
-def test_save_and_load_multiple_internships(tmp_path: Path) -> None:
-    repository = InternshipRepository(tmp_path / "internships.json")
+def test_save_and_load_multiple_internships(
+    repository: InternshipRepository,
+) -> None:
     internships = [
         make_internship(company="Mistral AI"),
         make_internship(company="Hugging Face"),
@@ -57,9 +44,9 @@ def test_save_and_load_multiple_internships(tmp_path: Path) -> None:
     assert repository.load_all() == internships
 
 
-def test_save_and_load_preserves_unicode(tmp_path: Path) -> None:
+def test_save_and_load_preserves_unicode(repository: InternshipRepository, tmp_path: Path) -> None:
     data_file = tmp_path / "internships.json"
-    repository = InternshipRepository(data_file)
+
     internship = make_internship(
         company="海洋智能科技",
         title="Ingénieur IA",
@@ -75,8 +62,7 @@ def test_save_and_load_preserves_unicode(tmp_path: Path) -> None:
     assert repository.load_all() == [internship]
 
 
-def test_add_persists_internship(tmp_path: Path) -> None:
-    repository = InternshipRepository(tmp_path / "internships.json")
+def test_add_persists_internship(repository: InternshipRepository) -> None:
     internship = make_internship()
 
     result = repository.add(internship)
@@ -84,8 +70,7 @@ def test_add_persists_internship(tmp_path: Path) -> None:
     assert repository.load_all() == [internship]
 
 
-def test_get_by_id_returns_matching_internship(tmp_path: Path) -> None:
-    repository = InternshipRepository(tmp_path / "internships.json")
+def test_get_by_id_returns_matching_internship(repository: InternshipRepository) -> None:
     first = make_internship(company="Mistral AI")
     second = make_internship(company="Hugging Face")
     repository.save_all([first, second])
@@ -93,18 +78,25 @@ def test_get_by_id_returns_matching_internship(tmp_path: Path) -> None:
     assert repository.get_by_id(second.id) == second
 
 
-def test_get_by_id_raises_when_id_is_unknown(tmp_path: Path) -> None:
-    repository = InternshipRepository(tmp_path / "internships.json")
+def test_get_by_id_raises_when_id_is_unknown(repository: InternshipRepository) -> None:
     unknown_id = uuid4()
 
     with pytest.raises(InternshipNotFoundError):
         repository.get_by_id(unknown_id)
 
 
-def test_update_persists_existing_internship(tmp_path: Path) -> None:
-    repository = InternshipRepository(tmp_path / "internships.json")
-    original = make_internship()
-    repository.save_all([original])
+def test_update_persists_existing_internship(
+    repository: InternshipRepository,
+) -> None:
+    untouched = make_internship(
+        company="Mistral AI",
+        url="https://example.com/untouched",
+    )
+    original = make_internship(
+        company="Hugging Face",
+        url="https://example.com/target",
+    )
+    repository.save_all([untouched, original])
 
     updated = original.model_copy(
         update={
@@ -114,22 +106,23 @@ def test_update_persists_existing_internship(tmp_path: Path) -> None:
     )
 
     result = repository.update(updated)
+
     assert result == updated
-    assert repository.load_all() == [updated]
+    assert repository.load_all() == [untouched, updated]
 
 
-def test_update_raises_when_id_is_unknown(tmp_path: Path) -> None:
-    repository = InternshipRepository(tmp_path / "internships.json")
+def test_update_raises_when_id_is_unknown(repository: InternshipRepository) -> None:
     unknown = make_internship()
 
     with pytest.raises(InternshipNotFoundError):
         repository.update(unknown)
 
 
-def test_load_all_wraps_malformed_json_error(tmp_path: Path) -> None:
+def test_load_all_wraps_malformed_json_error(
+    repository: InternshipRepository, tmp_path: Path
+) -> None:
     data_file = tmp_path / "internships.json"
     data_file.write_text('{"broken": ', encoding="utf-8")
-    repository = InternshipRepository(data_file)
 
     with pytest.raises(StorageError) as exc_info:
         repository.load_all()
@@ -137,13 +130,12 @@ def test_load_all_wraps_malformed_json_error(tmp_path: Path) -> None:
     assert isinstance(exc_info.value.__cause__, JSONDecodeError)
 
 
-def test_load_all_wraps_validation_error(tmp_path: Path) -> None:
+def test_load_all_wraps_validation_error(repository: InternshipRepository, tmp_path: Path) -> None:
     data_file = tmp_path / "internships.json"
     data_file.write_text(
         '[{"company": "Mistral AI"}]',
         encoding="utf-8",
     )
-    repository = InternshipRepository(data_file)
 
     with pytest.raises(StorageError) as exc_info:
         repository.load_all()
@@ -151,8 +143,7 @@ def test_load_all_wraps_validation_error(tmp_path: Path) -> None:
     assert isinstance(exc_info.value.__cause__, ValidationError)
 
 
-def test_add_rejects_duplicate_id(tmp_path: Path) -> None:
-    repository = InternshipRepository(tmp_path / "internships.json")
+def test_add_rejects_duplicate_id(repository: InternshipRepository) -> None:
     original = make_internship(company="Mistral AI")
     duplicate = make_internship(
         id=original.id,
@@ -166,8 +157,7 @@ def test_add_rejects_duplicate_id(tmp_path: Path) -> None:
     assert repository.load_all() == [original]
 
 
-def test_save_all_rejects_duplicate_ids(tmp_path: Path) -> None:
-    repository = InternshipRepository(tmp_path / "internships.json")
+def test_save_all_rejects_duplicate_ids(repository: InternshipRepository, tmp_path: Path) -> None:
     data_file = tmp_path / "internships.json"
     first = make_internship(company="Mistral AI")
     second = make_internship(
@@ -181,7 +171,9 @@ def test_save_all_rejects_duplicate_ids(tmp_path: Path) -> None:
     assert not data_file.exists()
 
 
-def test_load_all_rejects_duplicate_ids_in_file(tmp_path: Path) -> None:
+def test_load_all_rejects_duplicate_ids_in_file(
+    repository: InternshipRepository, tmp_path: Path
+) -> None:
     data_file = tmp_path / "internships.json"
     first = make_internship(company="Mistral AI")
     second = make_internship(
@@ -196,18 +188,14 @@ def test_load_all_rejects_duplicate_ids_in_file(tmp_path: Path) -> None:
         json.dumps(payload, ensure_ascii=False),
         encoding="utf-8",
     )
-    repository = InternshipRepository(data_file)
 
     with pytest.raises(DuplicateInternshipError):
         repository.load_all()
 
 
 def test_save_all_preserves_existing_file_when_replace_fails(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    repository: InternshipRepository, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    data_file = tmp_path / "internships.json"
-    repository = InternshipRepository(data_file)
     original = make_internship(company="Mistral AI")
     replacement = make_internship(company="Hugging Face")
     repository.save_all([original])
@@ -223,3 +211,16 @@ def test_save_all_preserves_existing_file_when_replace_fails(
     assert isinstance(exc_info.value.__cause__, OSError)
     assert repository.load_all() == [original]
     assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_load_all_rejects_non_array_payload(
+    data_file: Path,
+    repository: InternshipRepository,
+) -> None:
+    data_file.write_text(
+        '{"company": "Mistral AI"}',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(StorageError, match="Expected a JSON array"):
+        repository.load_all()
