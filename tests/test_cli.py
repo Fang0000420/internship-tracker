@@ -1,3 +1,4 @@
+import json
 import logging
 from json import JSONDecodeError
 from pathlib import Path
@@ -92,6 +93,48 @@ def test_add_command_rejects_duplicate_url(data_file: Path) -> None:
     assert duplicate_result.exit_code == 1
     assert "already exists" in duplicate_result.output.casefold()
     assert len(InternshipRepository(data_file).load_all()) == 1
+
+
+def test_add_command_reports_storage_error_for_duplicate_ids_in_file(
+    data_file: Path,
+) -> None:
+    first = make_internship(
+        company="Mistral AI",
+        url="https://example.com/existing-one",
+    )
+    second = make_internship(
+        id=first.id,
+        company="Hugging Face",
+        url="https://example.com/existing-two",
+    )
+    payload = [
+        first.model_dump(mode="json"),
+        second.model_dump(mode="json"),
+    ]
+    data_file.write_text(
+        json.dumps(payload, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    result = invoke_cli(
+        data_file,
+        "add",
+        "--company",
+        "Example AI",
+        "--title",
+        "Research Intern",
+        "--country",
+        "Germany",
+        "--url",
+        "https://example.com/new-internship",
+    )
+
+    output = result.output.casefold()
+    assert result.exit_code == 1
+    assert "unable to access internship data" in output
+    assert "already exists" not in output
+    assert "traceback" not in output
+    assert "duplicateinternshiperror" not in output
 
 
 def test_list_command_displays_saved_internship(data_file: Path) -> None:

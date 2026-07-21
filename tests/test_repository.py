@@ -171,10 +171,10 @@ def test_save_all_rejects_duplicate_ids(repository: InternshipRepository, tmp_pa
     assert not data_file.exists()
 
 
-def test_load_all_rejects_duplicate_ids_in_file(
-    repository: InternshipRepository, tmp_path: Path
+def test_load_all_wraps_duplicate_ids_as_storage_error(
+    repository: InternshipRepository,
+    data_file: Path,
 ) -> None:
-    data_file = tmp_path / "internships.json"
     first = make_internship(company="Mistral AI")
     second = make_internship(
         id=first.id,
@@ -189,8 +189,13 @@ def test_load_all_rejects_duplicate_ids_in_file(
         encoding="utf-8",
     )
 
-    with pytest.raises(DuplicateInternshipError):
+    with pytest.raises(StorageError) as exc_info:
         repository.load_all()
+
+    assert isinstance(
+        exc_info.value.__cause__,
+        DuplicateInternshipError,
+    )
 
 
 def test_save_all_preserves_existing_file_when_replace_fails(

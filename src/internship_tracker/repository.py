@@ -45,7 +45,11 @@ class InternshipRepository:
         except ValidationError as exc:
             raise StorageError(f"Invalid internship data in {self._path}") from exc
 
-        self._ensure_unique_ids(internships)
+        try:
+            self._ensure_unique_ids(internships)
+        except DuplicateInternshipError as exc:
+            raise StorageError("Unable to load internship data.") from exc
+
         logger.debug("Loaded %d internships", len(internships))
         return internships
 
