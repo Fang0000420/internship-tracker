@@ -19,3 +19,12 @@ wheels/
 
 # PyCharm
 .idea/
+
+# Local application data
+internships.json
+
+# Logs and coverage reports
+*.log
+.coverage.*
+coverage.xml
+htmlcov/
