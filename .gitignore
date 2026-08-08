@@ -31,3 +31,4 @@ internships.json
 .coverage.*
 coverage.xml
 htmlcov/
+AGENTS.md
