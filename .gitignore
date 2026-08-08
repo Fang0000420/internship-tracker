@@ -20,6 +20,9 @@ wheels/
 # PyCharm
 .idea/
 
+# Local project guidance and planning documents
+docs/
+
 # Local application data
 internships.json
 
