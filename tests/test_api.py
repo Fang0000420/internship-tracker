@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -5,6 +7,7 @@ from internship_tracker.api.app import create_app
 from internship_tracker.api.dependencies import get_internship_service
 from internship_tracker.repository import InternshipRepository
 from internship_tracker.service import InternshipService
+from tests.factories import make_internship
 
 
 def test_health_endpoint_returns_expected_json() -> None:
@@ -144,3 +147,73 @@ def test_openapi_describes_create_internship_contract() -> None:
 
     assert request_schema["$ref"] == "#/components/schemas/InternshipCreateRequest"
     assert created_response_schema["$ref"] == "#/components/schemas/InternshipResponse"
+
+
+def test_list_internships_returns_empty_list(
+    api_client: TestClient,
+) -> None:
+    response = api_client.get("/api/v1/internships")
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_list_internships_returns_all_items_newest_first(
+    api_client: TestClient,
+    repository: InternshipRepository,
+) -> None:
+    older = make_internship(
+        city="Paris",
+        tags=["python", "fastapi"],
+        notes="Internal note",
+        company="Older Company",
+        url="https://example.com/jobs/older",
+        created_at=datetime(2026, 8, 1, 9, 0, tzinfo=UTC),
+    )
+    newer = make_internship(
+        city="Paris",
+        tags=["python", "fastapi"],
+        notes="Internal note",
+        company="Newer Company",
+        url="https://example.com/jobs/newer",
+        created_at=datetime(2026, 8, 2, 9, 0, tzinfo=UTC),
+    )
+    repository.add(older)
+    repository.add(newer)
+
+    response = api_client.get("/api/v1/internships")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [item["company"] for item in body] == ["Newer Company", "Older Company"]
+    public_fields = {
+        "id",
+        "company",
+        "title",
+        "country",
+        "url",
+        "created_at",
+        "status",
+    }
+    private_fields = {
+        "city",
+        "tags",
+        "notes",
+    }
+    assert all(set(item) == public_fields for item in body)
+    assert all(private_fields.isdisjoint(item) for item in body)
+
+
+def test_openapi_describes_list_internships_contract() -> None:
+    client = TestClient(create_app())
+
+    response = client.get("/openapi.json")
+
+    assert response.status_code == 200
+    schema = response.json()
+
+    operation = schema["paths"]["/api/v1/internships"]["get"]
+
+    list_response_schema = operation["responses"]["200"]["content"]["application/json"]["schema"]
+
+    assert list_response_schema["type"] == "array"
+    assert list_response_schema["items"]["$ref"] == "#/components/schemas/InternshipResponse"

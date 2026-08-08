@@ -35,3 +35,21 @@ def create_internship(
     )
     response = InternshipResponse.model_validate(created.model_dump())
     return response
+
+
+@router.get(
+    "",
+    response_model=list[InternshipResponse],
+    status_code=status.HTTP_200_OK,
+)
+def list_internships(
+    service: Annotated[
+        InternshipService,
+        Depends(get_internship_service),
+    ],
+) -> list[InternshipResponse]:
+    internships = service.list_internships()
+    responses = [
+        InternshipResponse.model_validate(internship.model_dump()) for internship in internships
+    ]
+    return responses
